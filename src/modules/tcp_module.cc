@@ -21,16 +21,17 @@
 #include <iostream>
 
 #include "Minet.h"
+#include "tcpstate.h"
 
 using namespace std;
 
-struct TCPState {
-    // need to write this
-    std::ostream & Print(std::ostream &os) const { 
-	os << "TCPState()" ; 
-	return os;
-    }
-};
+// struct TCPState {
+//     // need to write this
+//     std::ostream & Print(std::ostream &os) const { 
+// 	os << "TCPState()" ;len 
+// 	return os;
+//     }
+// };
 
 
 int main(int argc, char * argv[]) {
@@ -78,19 +79,23 @@ int main(int argc, char * argv[]) {
 	    (event.direction == MinetEvent::IN)) {
 	
 	    if (event.handle == mux) {
+            // call some function
 		// ip packet has arrived!
             Packet p;
             unsigned short len;
             bool checksumok;
             MinetReceive(mux,p);
-            p.ExtractHeaderFromPayload<TCPHeader>(20);
-            cout << "got a packet\n";
 	        TCPHeader tcph;
+            len = tcph.EstimateTCPHeaderLength(p);
+            p.ExtractHeaderFromPayload<TCPHeader>(len);
 	        tcph=p.FindHeader(Headers::TCPHeader);
 	        checksumok=tcph.IsCorrectChecksum(p);
 	        IPHeader iph;
 	        iph=p.FindHeader(Headers::IPHeader);
 	        Connection c;
+            Buffer b = p.GetPayload();
+            cout << "***************PAYLOAD****************\n";
+            cout << b << "\n";
 	        // note that this is flipped around because
 	        // "source" is interepreted as "this machine"
 	        iph.GetDestIP(c.src);
@@ -98,24 +103,32 @@ int main(int argc, char * argv[]) {
 	        iph.GetProtocol(c.protocol);
 	        tcph.GetDestPort(c.srcport);
 	        tcph.GetSourcePort(c.destport);
+            cout << "*************RAW PACKET*************\n";
+            cout << p << "\n";
+            cout << "*************TCP HEADER*************\n";
+            cout << tcph << "\n";
+            cout << "*************IP HEADER*************\n";
+            cout << iph << "\n";
+
+            cout << "***************Connection List****************\n";
+            cout << clist << "\n";
+
 	        ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);
             if(cs!=clist.end()) {
-                len = tcph.EstimateTCPHeaderLength(p);
-                cout << "blah blah blah\n";
-                cout << len << "\n";
+                cout << "hello world\n";
             }
 
 	    }
 
 	    if (event.handle == sock) {
 		// socket request or response has arrived
-             //cout << "got a socket req/res\n";
+             cout << "got a socket req/res\n";
 	    }
 	}
 
 	if (event.eventtype == MinetEvent::Timeout) {
 	    // timeout ! probably need to resend some packets
-             cout << "got a timeout\n";
+             //cout << "got a timeout\n";
 	}
 
     }
