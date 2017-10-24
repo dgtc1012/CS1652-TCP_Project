@@ -33,6 +33,17 @@ using namespace std;
 //     }
 // };
 
+enum TYPE{
+    SYN,
+    SYNACK,
+    ACK,
+    PSHACK,
+    FIN,
+    FINACK,
+    RESET
+};
+
+
 #define BYTES_PER_WORD 4
 #define BASE_TCP_HEADER_LEN_IN_WORDS 5
 
@@ -86,13 +97,13 @@ int main(int argc, char * argv[]) {
 	    if (event.handle == mux) {
             // call some function
 		// ip packet has arrived!
-            
+            handle_IP_Packet(mux, sock, clist);
 
 	    }
 
 	    if (event.handle == sock) {
 		// socket request or response has arrived
-             cout << "got a socket req/res\n";
+            // cout << "got a socket req/res\n";
 	    }
 	}
 
@@ -142,7 +153,7 @@ void make_packet(Packet &p, ConnectionToStateMapping<TCPState> &CSM, TYPE Header
             SET_ACK(flags);
             break;
         case PSHACK:
-            SET_PHS(flags);
+            SET_PSH(flags);
             SET_ACK(flags);
             break;
         case FIN:
@@ -173,32 +184,29 @@ void make_packet(Packet &p, ConnectionToStateMapping<TCPState> &CSM, TYPE Header
 }
 
 void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPState> &clist){
-    
+    cerr << "***************Entering handle_IP_Packet********************\n";
     Packet p;
     unsigned short len;
     bool checksumok;
     
     MinetReceive(mux,p);
     
-    len = tcph.EstimateTCPHeaderLength(p);
+    len = TCPHeader::EstimateTCPHeaderLength(p);
     p.ExtractHeaderFromPayload<TCPHeader>(len);
-    
     TCPHeader tcph;
     tcph=p.FindHeader(Headers::TCPHeader);
-    
     checksumok=tcph.IsCorrectChecksum(p);
     if(!checksumok){
         cerr << "Invalid Checksum\n";
         return;
     }
-    
     IPHeader iph;
     iph=p.FindHeader(Headers::IPHeader);
     
     Connection c;
     Buffer b = p.GetPayload();
-    cout << "***************PAYLOAD****************\n";
-    cout << b << "\n";
+    cerr << "***************PAYLOAD****************\n";
+    cerr << b << "\n";
     // note that this is flipped around because
     // "source" is interepreted as "this machine"
     
@@ -209,15 +217,15 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
     tcph.GetSourcePort(c.destport);
     
 //***************************************************************************
-    cout << "*************RAW PACKET*************\n";
-    cout << p << "\n";
-    cout << "*************TCP HEADER*************\n";
-    cout << tcph << "\n";
-    cout << "*************IP HEADER*************\n";
-    cout << iph << "\n";
+    cerr << "*************RAW PACKET*************\n";
+    cerr << p << "\n";
+    cerr << "*************TCP HEADER*************\n";
+    cerr << tcph << "\n";
+    cerr << "*************IP HEADER*************\n";
+    cerr << iph << "\n";
 
-    cout << "***************Connection List****************\n";
-    cout << clist << "\n";
+    cerr << "***************Connection List****************\n";
+    cerr << clist << "\n";
 //***************************************************************************
 
     unsigned char flags;
@@ -250,12 +258,13 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
     ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);    
     
     if(cs == clist.end()) {
-        cout << "Connection isnt in the list\n";
+        cerr << "Connection isnt in the list\n";
     }
+
     
     unsigned int currState = cs->state.GetState();
     
-    switch(curr_state){
+    switch(currState){
      case CLOSED:
         //********** do we need this? ****************//
         //passive open, create TCB -> LISTEN
@@ -265,7 +274,7 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
         //Close, delete TCB ->CLOSED
         //rcv SYN, send SYN, ACK -> SYN_RCVD
         //SEND, snd SYN -> SYN_SENT
-        if(IS_SYN(flag)){
+        if(IS_SYN(flags)){
             //got a SYN, need to send SYNACK for handshake
             
             //updating connection info
@@ -299,7 +308,8 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
         break;
     case SEND_DATA:
         //************* idk ***************//
-        break;
+
+     break;
     case CLOSE_WAIT:
         //************* idk **************//
         break;
