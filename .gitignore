@@ -1,3 +1,7 @@
 *.o
 src/*/*.o
 bin/*
+*.swp
+src/*.swp
+src/*/*.swp
+pids

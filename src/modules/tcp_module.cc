@@ -259,8 +259,13 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
     
     if(cs == clist.end()) {
         cerr << "Connection isnt in the list\n";
+        TCPState *newConn = new TCPState(0, LISTEN, 5);\
+        Time *t = new Time(2.5);
+        ConnectionToStateMapping<TCPState> * newCSM = new ConnectionToStateMapping<TCPState>(c, *t, *newConn, false);
+        clist.push_back(*newCSM);
+        
+        ConnectionList<TCPState>::iterator cs = clist.FindMatching(c);    
     }
-
     
     unsigned int currState = cs->state.GetState();
     
