@@ -276,6 +276,7 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
         //active open, create TCB snd SYN -> SYN_SENT
         break;
     case LISTEN:
+        cerr << "*****************In LISTEN state************************\n";
         //Close, delete TCB ->CLOSED
         //rcv SYN, send SYN, ACK -> SYN_RCVD
         //SEND, snd SYN -> SYN_SENT
@@ -298,18 +299,78 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
         }
         break;
     case SYN_RCVD:
+        cerr << "*********************In SYN_RCVD state******************\n";
         //CLOSE, snd FIN -> FIN_WAIT1
         //rcv ACK of SYN -> ESTABLISHED
+        if(IS_ACK(flags)){
+            cs->state.SetState(ESTABLISHED);
+            cs->state.SetLastAcked(ack);
+            cs->state.SetSendRwnd(window_size);
+            cs->state.last_sent = cs->state.last_sent + 1;
+            
+            //turn off timer, we got an ACK
+            cs->bTmrActive = false;
+
+            //tell app layer that connection was established
+            SockRequestResponse * msg = new SockRequestResponse(WRITE, cs->connection, payload, 0, EOK);
+            MinetSend(sock, *msg);
+            delete msg;
+        }
         break;
     case SYN_SENT:
+        cerr << "*****************In SYN_SENT state****************\n";
         //rcv SYN, snd ACK -> SYN_RCVD
         //rcv SYN, ACK, snd ACK -> ESTABLISHED
+        if(IS_SYN(flags) && IS_ACK(flags)){
+            //got a SYNACK msg, need to send an ACK to establish connection
+            cs->state.SetSendRwnd(window_size);
+            cs->state.SetLastRecvd(seqnum + 1);
+            cs->state.last_acked = ack;
+            cs->state.last_sent = cs->state.last_sent + 1;
+
+            //send ack msg
+            Packet send;
+            make_packet(send, *cs, ACK, 0, false);
+            MinetSend(mux, send);
+
+            cs->state.SetState(ESTABLISHED);
+            cs->bTmrActive = false;
+
+            SockRequestResponse * msg = new SockRequestResponse(WRITE, cs->connection, payload, 0, EOK);
+            MinetSend(sock, *msg);
+            delete msg;
+        }
         break;
     case SYN_SENT1:
         //?
         break;
     case ESTABLISHED:
         //CLOSE, snd FIN -> FIN_WAIT
+        cerr << "********************In ESTABLISHED state*******************\n";
+        if(IS_FIN(flags)){
+            //we get a fin, so we send an ack and send our own fin
+            cerr << "*******************Got FIN*************************\n";
+            cs->state.SetState(CLOSE_WAIT);
+            cs->state.SetLastRecvd(seqnum+1);
+            cs->bTmrActive = true;
+            cs->timeout = Time()+8; //picked that arbitrarily
+            
+            Packet ack_pack;
+            make_packet(ack_pack, *cs, ACK, 0, false);
+            MinetSend(mux, ack_pack);
+
+            Packet fin;
+            make_packet(fin, *cs, FIN, 0, false);
+            MinetSend(mux, fin);
+
+            cs->state.SetState(LAST_ACK);
+        }
+        if(IS_PSH(flags)){
+        
+        }
+        if(IS_ACK(flags)){
+        
+        }
         break;
     case SEND_DATA:
         //************* idk ***************//
@@ -319,14 +380,53 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
         //************* idk **************//
         break;
     case FIN_WAIT1:
+        cerr << "**********************In FIN_WAIT1 state******************\n";
+        if(IS_ACK(flags)){
+            // got to FIN_WAIT2, waiting for fin from other side
+            cs->state.SetState(FIN_WAIT2);
+        }
+        if(IS_FIN(flags) && IS_ACK(flags)){
+            //got a FINACK msg
+            cs->state.SetState(TIME_WAIT);
+            cs->state.SetLastRecvd(seqnum+1);
+            
+            Packet close;
+            make_packet(close, *cs, ACK, 0, false);
+            
+            //close connection if no new FIN recvd by timout
+            cs->bTmrActive = true;
+            cs->timeout = Time() + 2*MSL_TIME_SECS;
+            MinetSend(mux, close);
+        }
         break;
     case CLOSING:
         break;
     case LAST_ACK:
+        cerr << "*********************In LAST_ACK state****************\n";
+        if(IS_ACK(flags)){
+            cs->state.SetState(CLOSED);
+            clist.erase(cs);
+        }
         break;
     case FIN_WAIT2:
+        cerr << "*********************In FIN_WAIT2 state******************\n";
+        if(IS_FIN(flags)){
+            //got a FINACK msg
+            cs->state.SetState(TIME_WAIT);
+            cs->state.SetLastRecvd(seqnum+1);
+            
+            Packet close;
+            make_packet(close, *cs, ACK, 0, false);
+            
+            //close connection if no new FIN recvd by timout
+            cs->bTmrActive = true;
+            cs->timeout = Time() + 2*MSL_TIME_SECS;
+            MinetSend(mux, close);
+        }
         break;
     case TIME_WAIT:
+        cerr << "********************In TIME_WAIT state*****************\n";
+        //probs resend ack if we get another fin at this point, bc the ack we sent before was lost
         break;
     default:
         break;
