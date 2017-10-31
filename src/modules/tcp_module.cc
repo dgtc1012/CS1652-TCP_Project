@@ -374,10 +374,29 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
 
             cs->state.SetState(LAST_ACK);
         }
-        if(IS_PSH(flags)){
+        if(IS_ACK(flags)){
+            // if not a duplicate
+            if(ack > cs->state.last_acked) {
+
+                cs->state.SetSendRwnd(window_size);
+
+                // clear send buffer 
+                int acked_bytes = cs->state.last_acked - ack;
+                cs->state.SendBuffer.Erase(0, acked_bytes);
+
+                // v unsure about this
+                if(payload.GetSize()==0){
+                    cs->state.SetLastRecvd(seqnum+1);
+                    cs->bTmrActive = false;
+                }
+                cs->state.last_acked = ack;
+            }
+        
+        }
+        if(IS_PSH(flags) && payload.GetSize()!=0){
             cerr << "***********************Got content with data woooooo*******************\n";
             cs->state.SetSendRwnd(window_size);
-            cs->state.SetLastRecvd(seqnum+payload.GetSize()); //i dont think thats the actual method name
+            cs->state.SetLastRecvd(seqnum+payload.GetSize());
             
             cs->state.RecvBuffer.AddBack(payload);
             SockRequestResponse *write = new SockRequestResponse(WRITE, cs->connection, cs->state.RecvBuffer, cs->state.RecvBuffer.GetSize(), EOK);
@@ -389,9 +408,6 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
 
             cs->bTmrActive = true;
             cs->timeout = Time()+5; //arbitrarily picked 5
-        }
-        if(IS_ACK(flags)){
-        
         }
         break;
     case SEND_DATA:
