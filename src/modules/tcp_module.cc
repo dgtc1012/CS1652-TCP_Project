@@ -49,7 +49,7 @@ enum TYPE{
 
 void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPState> &clist);
 void make_packet(Packet &p, ConnectionToStateMapping<TCPState> &CSM, TYPE HeaderType, int size, bool isTimeout);
-void handle_timeout_event(MinetHandle &mux, ConnectionToStateMapping<TCPState> &CSM, ConnectionList<TCPState> &clist);
+void handle_timeout_event(MinetHandle &mux, ConnectionList<TCPState>::iterator &CSM, ConnectionList<TCPState> &clist);
 
 int main(int argc, char * argv[]) {
     MinetHandle mux;
@@ -86,7 +86,7 @@ int main(int argc, char * argv[]) {
     cerr << "tcp_module STUB VERSION handling tcp traffic.......\n";
 
     MinetSendToMonitor(MinetMonitoringEvent("tcp_module STUB VERSION handling tcp traffic........"));
-
+   
     MinetEvent event;
     double timeout = 1;
 
@@ -111,9 +111,9 @@ int main(int argc, char * argv[]) {
 	if (event.eventtype == MinetEvent::Timeout) {
 	    // timeout ! probably need to resend some packets
              cout << "got a timeout\n";
-        ConnectionList<TCPState> cs = clist.FindEarliest();
+        ConnectionList<TCPState>::iterator cs = clist.FindEarliest();
         if(cs != clist.end()){
-            if(Time().operator > (*cs).timeout){
+            if(Time() > (*cs).timeout){
                 handle_timeout_event(mux, cs, clist);
             }
         }
@@ -300,9 +300,17 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
             cs->state.last_sent = cs->state.last_sent + 1;
             
             Packet send;
-            
+            cs->bTmrActive = true;
+            cs->timeout = Time() + 5;
+
             make_packet(send, *cs, SYNACK, 0, false);
             MinetSend(mux, send);
+        }
+        if(IS_PSH(flags)){
+            
+        }
+        if(IS_ACK(flags)){
+            
         }
         break;
     case SYN_RCVD:
@@ -440,7 +448,7 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
     }
 }
 
-void handle_timeout_event(MinetHandle &mux, ConnectionToStateMapping<TCPState> &CSM, ConnectionList<TCPState> &clist){
+void handle_timeout_event(MinetHandle &mux, ConnectionList<TCPState>::iterator &CSM, ConnectionList<TCPState> &clist){
     cerr << "**********************Handling a timeout**************\n";
     
     unsigned int state = CSM->state.GetState();
@@ -452,21 +460,25 @@ void handle_timeout_event(MinetHandle &mux, ConnectionToStateMapping<TCPState> &
             //no timeouts here
             break;
         case SYN_RCVD:
+            cerr << "*******************timout in SYN_RCVD state, resending SYNACK packet****************\n";
             //synack was not acked, resend it 
             make_packet(resend, *CSM, SYNACK, 0, true);
             break;
         case SYN_SENT:
+            cerr << "*******************timout in SYN_SENT state, resend SYN packet******************\n";
             //no ack has occured yet at all, only a syn has been
             make_packet(resend, *CSM, SYN, 0, false);
             MinetSend(mux, resend);
             break;
         case ESTABLISHED:
+            cerr << "*******************timout in ESTABLISHED state, resend data******************\n";
             //resend with whatever data is there or not
             data = CSM->state.SendBuffer;
             //TODO: send data
             break;
         case FIN_WAIT1:
             //We sent our FIN, waiting for an ack or FINACK that we didnt get, resend FIN
+            cerr <<"******************timout in FIN_WAIT1 state, resend FIN*****************\n";
             make_packet(resend, *CSM, FIN, 0, true);
             MinetSend(mux, resend);
             break;
@@ -478,6 +490,7 @@ void handle_timeout_event(MinetHandle &mux, ConnectionToStateMapping<TCPState> &
             break;
         case TIME_WAIT:
             //this is when time wait ends, its not an actual message timeout
+            cerr << "**************timout in TIME_WAIT state, close the connection**************\n";
             CSM->state.SetState(CLOSED);
             clist.erase(CSM);
             break;
