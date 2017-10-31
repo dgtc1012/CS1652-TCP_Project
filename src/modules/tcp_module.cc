@@ -306,17 +306,12 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
             make_packet(send, *cs, SYNACK, 0, false);
             MinetSend(mux, send);
         }
-        if(IS_PSH(flags)){
-            
-        }
-        if(IS_ACK(flags)){
-            
-        }
         break;
     case SYN_RCVD:
         cerr << "*********************In SYN_RCVD state******************\n";
         //CLOSE, snd FIN -> FIN_WAIT1
         //rcv ACK of SYN -> ESTABLISHED
+        //you have send a SYNACK in response to a SYN, you are waiting for an ACK
         if(IS_ACK(flags)){
             cs->state.SetState(ESTABLISHED);
             cs->state.SetLastAcked(ack);
@@ -336,6 +331,7 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
         cerr << "*****************In SYN_SENT state****************\n";
         //rcv SYN, snd ACK -> SYN_RCVD
         //rcv SYN, ACK, snd ACK -> ESTABLISHED
+        //you got a SYNACK, so now you have to send an ACK. Set a timeout on the ack
         if(IS_SYN(flags) && IS_ACK(flags)){
             //got a SYNACK msg, need to send an ACK to establish connection
             cs->state.SetSendRwnd(window_size);
@@ -349,7 +345,8 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
             MinetSend(mux, send);
 
             cs->state.SetState(ESTABLISHED);
-            cs->bTmrActive = false;
+            cs->bTmrActive = true;
+            cs->timeout = Time() + 5;
 
             SockRequestResponse * msg = new SockRequestResponse(WRITE, cs->connection, payload, 0, EOK);
             MinetSend(sock, *msg);
@@ -365,23 +362,33 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
         if(IS_FIN(flags)){
             //we get a fin, so we send an ack and send our own fin
             cerr << "*******************Got FIN*************************\n";
+            cs->state.SetSendRwnd(window_size);
             cs->state.SetState(CLOSE_WAIT);
             cs->state.SetLastRecvd(seqnum+1);
             cs->bTmrActive = true;
-            cs->timeout = Time()+8; //picked that arbitrarily
+            cs->timeout = Time()+5; //picked that arbitrarily
             
             Packet ack_pack;
-            make_packet(ack_pack, *cs, ACK, 0, false);
+            make_packet(ack_pack, *cs, FINACK, 0, false);
             MinetSend(mux, ack_pack);
-
-            Packet fin;
-            make_packet(fin, *cs, FIN, 0, false);
-            MinetSend(mux, fin);
 
             cs->state.SetState(LAST_ACK);
         }
         if(IS_PSH(flags)){
-        
+            cerr << "***********************Got content with data woooooo*******************\n";
+            cs->state.SetSendRwnd(window_size);
+            cs->state.SetLastRecvd(seqnum+payload.GetSize()); //i dont think thats the actual method name
+            
+            cs->state.RecvBuffer.AddBack(payload);
+            SockRequestResponse *write = new SockRequestResponse(WRITE, cs->connection, cs->state.RecvBuffer, cs->state.RecvBuffer.GetSize(), EOK);
+            MinetSend(sock, *write);
+
+            Packet send;
+            make_packet(send, *cs, ACK, 0, false);
+            MinetSend(mux, send);
+
+            cs->bTmrActive = true;
+            cs->timeout = Time()+5; //arbitrarily picked 5
         }
         if(IS_ACK(flags)){
         
