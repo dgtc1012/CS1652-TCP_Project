@@ -49,6 +49,7 @@ enum TYPE{
 
 void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPState> &clist);
 void make_packet(Packet &p, ConnectionToStateMapping<TCPState> &CSM, TYPE HeaderType, int size, bool isTimeout);
+void handle_timeout_event(MinetHandle &mux, ConnectionToStateMapping<TCPState> &CSM, ConnectionList<TCPState> &clist);
 
 int main(int argc, char * argv[]) {
     MinetHandle mux;
@@ -109,8 +110,14 @@ int main(int argc, char * argv[]) {
 
 	if (event.eventtype == MinetEvent::Timeout) {
 	    // timeout ! probably need to resend some packets
-             //cout << "got a timeout\n";
-	}
+             cout << "got a timeout\n";
+        ConnectionList<TCPState> cs = clist.FindEarliest();
+        if(cs != clist.end()){
+            if(Time().operator > (*cs).timeout){
+                handle_timeout_event(mux, cs, clist);
+            }
+        }
+    }
 
     }
 
@@ -430,5 +437,51 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
         break;
     default:
         break;
+    }
+}
+
+void handle_timeout_event(MinetHandle &mux, ConnectionToStateMapping<TCPState> &CSM, ConnectionList<TCPState> &clist){
+    cerr << "**********************Handling a timeout**************\n";
+    
+    unsigned int state = CSM->state.GetState();
+    Packet resend;
+    Buffer data;
+    
+    switch(state){
+        case LISTEN:
+            //no timeouts here
+            break;
+        case SYN_RCVD:
+            //synack was not acked, resend it 
+            make_packet(resend, *CSM, SYNACK, 0, true);
+            break;
+        case SYN_SENT:
+            //no ack has occured yet at all, only a syn has been
+            make_packet(resend, *CSM, SYN, 0, false);
+            MinetSend(mux, resend);
+            break;
+        case ESTABLISHED:
+            //resend with whatever data is there or not
+            data = CSM->state.SendBuffer;
+            //TODO: send data
+            break;
+        case FIN_WAIT1:
+            //We sent our FIN, waiting for an ack or FINACK that we didnt get, resend FIN
+            make_packet(resend, *CSM, FIN, 0, true);
+            MinetSend(mux, resend);
+            break;
+        case FIN_WAIT2:
+            //no timeout here, you got a FINACK or FIN from the other side and send an ACK, you dont expect a response
+            break;
+        case LAST_ACK:
+            //no timeout here, we already deleted the connection from the list
+            break;
+        case TIME_WAIT:
+            //this is when time wait ends, its not an actual message timeout
+            CSM->state.SetState(CLOSED);
+            clist.erase(CSM);
+            break;
+        default:
+            break;
     }
 }
