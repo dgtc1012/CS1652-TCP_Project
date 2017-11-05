@@ -48,6 +48,7 @@ enum TYPE{
 #define BASE_TCP_HEADER_LEN_IN_WORDS 5
 
 void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPState> &clist);
+void handle_Sock_Req(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPState> &clist);
 void make_packet(Packet &p, ConnectionToStateMapping<TCPState> &CSM, TYPE HeaderType, int size, bool isTimeout);
 void handle_timeout_event(MinetHandle &mux, ConnectionList<TCPState>::iterator &CSM, ConnectionList<TCPState> &clist);
 
@@ -468,6 +469,123 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
         break;
     default:
         break;
+    }
+}
+
+void handle_Sock_Req(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPState> &clist){
+    cerr << "**********************handling a socket request******************\n";
+
+    SockRequestResponse req;
+    Buffer b;
+    MinetReceive(sock, req);
+
+    ConnectionList<TCPState>::iterator cs = clist.FindMatching(req.connection);
+    //connection not in list
+    if(cs == clist.end()){
+        switch (req.type){
+            //We are the client asking the connect with a server
+            case CONNECT:
+                {
+                    //got a request from socket to create a new connection
+                    TCPState * state = new TCPState(1, SYN_SENT, 5);
+                    ConnectionToStateMapping<TCPState> * CTSM = new ConnectionToStateMapping<TCPState>(req.connection, Time()+5, *state, true);
+                    CTSM->state.last_acked = 0;
+                    
+                    Packet sendSyn;
+                    make_packet(sendSyn, *CTSM, SYN, 0, false);
+                    
+                    CTSM->bTmrActive = true;
+                    CTSM->timeout = Time() + 5;
+
+                    MinetSend(mux, sendSyn);
+                
+                    clist.push_back(*CTSM);
+                    
+                    SockRequestResponse *status = new SockRequestResponse(STATUS, CTSM->connection, b, 0, EOK); //dunno if this should be null
+                    MinetSend(sock, *status);
+                    delete status;
+                }
+                break;
+            //we are the server waiting to accept a connection from the client
+            case ACCEPT :
+                {
+                    TCPState * state = new TCPState(1, LISTEN, 5);
+                    ConnectionToStateMapping<TCPState> * CTSM = new ConnectionToStateMapping<TCPState>(req.connection, Time()+5, *state, true);
+                    CTSM->state.last_acked = 0;
+                    
+                    SockRequestResponse *status = new SockRequestResponse(STATUS, CTSM->connection, b, 0, EOK); //dunno if this should be null
+                    MinetSend(sock, *status);
+                    delete status;
+                }
+                break;
+            //reply that there is no connection
+            case WRITE:
+                {
+                    SockRequestResponse *status = new SockRequestResponse(STATUS, req.connection, b, 0, ENOMATCH);
+                    MinetSend(sock, *status);
+                    delete status;
+                }
+                break;
+            //reply that there is no connection
+            case FORWARD:
+                {
+                    SockRequestResponse *status = new SockRequestResponse(STATUS, req.connection, b, 0, ENOMATCH);
+                    MinetSend(sock, *status);
+                    delete status;
+                }
+                break;
+            //reply that there is no connection
+            case CLOSE:
+                {
+                    SockRequestResponse *status = new SockRequestResponse(STATUS, req.connection, b, 0, ENOMATCH);
+                    MinetSend(sock, *status);
+                    delete status;
+                }
+                break;
+            //reply that there is no connection
+            case STATUS:
+                {
+                    SockRequestResponse *status = new SockRequestResponse(STATUS, req.connection, b, 0, ENOMATCH);
+                    MinetSend(sock, *status);
+                    delete status;
+                }
+                break;
+            default:
+                {
+                    SockRequestResponse *status = new SockRequestResponse(STATUS, req.connection, b, 0, ENOMATCH);
+                    MinetSend(sock, *status);
+                    delete status;
+                }
+                break;
+        }
+    }
+    else{
+        switch(req.type) {
+            case CONNECT:
+                // already connected
+                break;
+            case ACCEPT:
+                // already listening
+                break;
+            case WRITE:
+
+                if(cs->state.GetState() == ESTABLISHED) {
+                    // check if buffer is full
+                    if(cs->state.GetSize() == cs->state.TCP_BUFFER_SIZE) {
+                        // idk
+                    } else {
+
+                    }
+                }
+                break;
+            case FORWARD:
+                break;
+            case CLOSE:
+                break;
+            case STATUS:
+                break;
+        }
+        
     }
 }
 
