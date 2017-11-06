@@ -18,6 +18,9 @@
 #include <fcntl.h>
 #include <errno.h>
 
+// for min()
+#include <algorithm>
+
 #include <iostream>
 
 #include "Minet.h"
@@ -51,6 +54,7 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
 void handle_Sock_Req(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPState> &clist);
 void make_packet(Packet &p, ConnectionToStateMapping<TCPState> &CSM, TYPE HeaderType, int size, bool isTimeout);
 void handle_timeout_event(MinetHandle &mux, ConnectionList<TCPState>::iterator &CSM, ConnectionList<TCPState> &clist);
+void send_data(MinetHandle &mux, Buffer &data, ConnectionToStateMapping<TCPState> &ctsm, bool isNew);
 
 int main(int argc, char * argv[]) {
     MinetHandle mux;
@@ -571,22 +575,103 @@ void handle_Sock_Req(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPStat
 
                 if(cs->state.GetState() == ESTABLISHED) {
                     // check if buffer is full
-                    if(cs->state.GetSize() == cs->state.TCP_BUFFER_SIZE) {
-                        // idk
+                    if(cs->state.SendBuffer.GetSize() + req.data.GetSize() >= cs->state.TCP_BUFFER_SIZE) {
+                        SockRequestResponse *status = new SockRequestResponse(STATUS, req.connection, b, 0, EBUF_SPACE);
+                        MinetSend(sock, *status);
+                        delete status;
                     } else {
+                        Buffer reqData = req.data;
+                        cs->bTmrActive = true;
+                        cs->timeout = Time() + 5;
 
+                        //some send data method
+                        send_data(mux, reqData, *cs, false);
+
+                        //tell sock data was send successfull
+                        SockRequestResponse *status = new SockRequestResponse(STATUS, req.connection, req.data, req.data.GetSize(), EOK); //not sure this is the correct response
                     }
                 }
                 break;
             case FORWARD:
+                {
+                    SockRequestResponse *status = new SockRequestResponse(STATUS, req.connection, b, 0, EOK);
+                    MinetSend(sock, *status);
+                    delete status;
+                }
                 break;
             case CLOSE:
+                {
+                    if(cs->state.GetState() == ESTABLISHED){
+                        cs->state.SetState(FIN_WAIT1);
+                        cs->state.SetLastSent(cs->state.GetLastSent()+1);
+
+                        Packet fin;
+                        make_packet(fin, *cs, FIN, 0, false);
+
+                        cs->bTmrActive = true;
+                        cs->timeout = Time() + 2*MSL_TIME_SECS;
+                        MinetSend(mux, fin);    
+                    }
+                    else if(cs->state.GetState() == LISTEN){
+                        cs->state.SetState(CLOSED);
+                        clist.erase(cs);
+                    }
+
+                    SockRequestResponse *status = new SockRequestResponse(STATUS, req.connection, b, 0, EOK);
+                    MinetSend(sock, *status);
+                    delete status;
+                }
                 break;
             case STATUS:
+                {
+                    //flow control do later
+                }
                 break;
         }
         
     }
+}
+
+void send_data(MinetHandle &mux, Buffer &data, ConnectionToStateMapping<TCPState> &ctsm, bool isNew){
+    
+    int dataLen = data.GetSize();
+    int sendBufLen = ctsm.state.SendBuffer.GetSize();
+    int sendBufIndex;
+    int bytesToSend;
+
+    if(isNew){
+        sendBufIndex = sendBufLen; //sendBufLen is the length of the send buffer before the new data is added
+        ctsm.state.SendBuffer.AddBack(data);
+        bytesToSend = dataLen;
+    }
+    else{
+        sendBufIndex = 0;
+        bytesToSend = sendBufLen;
+    }
+
+    while(bytesToSend != 0){
+        //check if bytesToSend > max size of message, if it is
+
+        int payloadLen;
+        if(bytesToSend > TCP_MAXIMUM_SEGMENT_SIZE){
+            payloadLen = TCP_MAXIMUM_SEGMENT_SIZE;
+        }
+        else{
+            payloadLen = bytesToSend;
+        }
+
+        Buffer payload = ctsm.state.SendBuffer.Extract(sendBufIndex, payloadLen);
+        Packet *p = new Packet(payload);
+        make_packet(*p, ctsm, PSHACK, payloadLen, !isNew);
+        MinetSend(mux, *p);
+        delete p;
+
+        sendBufIndex += payloadLen;
+        bytesToSend -= payloadLen;
+    }
+
+
+    
 }
 
 void handle_timeout_event(MinetHandle &mux, ConnectionList<TCPState>::iterator &CSM, ConnectionList<TCPState> &clist){
