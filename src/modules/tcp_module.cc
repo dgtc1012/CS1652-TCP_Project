@@ -354,8 +354,8 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
             cs->state.SetState(ESTABLISHED);
             
             //Dannah -> I dont know if we need this timer
-            cs->bTmrActive = true;
-            cs->timeout = Time() + 5;
+            cs->bTmrActive = false;
+            //cs->timeout = Time() + 5;
 
             SockRequestResponse * msg = new SockRequestResponse(WRITE, cs->connection, payload, 0, EOK);
             MinetSend(sock, *msg);
@@ -384,6 +384,7 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
             cs->state.SetState(LAST_ACK);
         }
         if(IS_ACK(flags)){
+            cerr << "********************GOT ACK*******************\n";
             // if not a duplicate
             if(ack > cs->state.last_acked) {
 
@@ -391,10 +392,12 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
 
                 // clear send buffer 
                 int acked_bytes = ack - cs->state.last_acked;
+                cerr << "************ ACKED " << acked_bytes << " bytes**********";
                 cs->state.SendBuffer.Erase(0, acked_bytes);
                 
                 // v unsure about this
                 if(payload.GetSize()==0){
+                    cerr << "**********PAYLOAD SIZE == 0************";
                     cs->state.SetLastRecvd(seqnum+1);
                 }
                 cs->bTmrActive = false;
@@ -597,17 +600,18 @@ void handle_Sock_Req(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPStat
                     cerr << "*******************in WRITE handle_Sock_req(conn in list)--state==ESTABLISHED***********************\n";
                     // check if buffer is full
                     if(cs->state.SendBuffer.GetSize() + req.data.GetSize() >= cs->state.TCP_BUFFER_SIZE) {
+                        cerr << "*******************in WRITE handle_Sock_req(conn in list) BUFFER FULL***********************\n";
                         SockRequestResponse *status = new SockRequestResponse(STATUS, req.connection, b, 0, EBUF_SPACE);
                         MinetSend(sock, *status);
                         delete status;
                     } else {
-                        cerr << "*******************in WRITE handle_Sock_req(conn in list)--state!=ESTABLISHED***********************\n";
+                        cerr << "*******************in WRITE handle_Sock_req(conn in list) BUFFER NOT FULL***********************\n";
                         Buffer reqData = req.data;
                         cs->bTmrActive = true;
                         cs->timeout = Time() + 5;
 
                         //some send data method
-                        send_data(mux, reqData, *cs, false);
+                        send_data(mux, reqData, *cs, true);
 
                         //tell sock data was send successfull
                         SockRequestResponse *status = new SockRequestResponse(STATUS, req.connection, b, req.data.GetSize(), EOK); //not sure this is the correct response
