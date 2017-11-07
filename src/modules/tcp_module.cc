@@ -217,7 +217,7 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
     iph=p.FindHeader(Headers::IPHeader);
     
     Connection c;
-    Buffer b = p.GetPayload();
+    Buffer b = p.GetPayload(); //?
     cerr << "***************PAYLOAD****************\n";
     cerr << b << "\n";
     // note that this is flipped around because
@@ -352,6 +352,8 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
             MinetSend(mux, send);
 
             cs->state.SetState(ESTABLISHED);
+            
+            //Dannah -> I dont know if we need this timer
             cs->bTmrActive = true;
             cs->timeout = Time() + 5;
 
@@ -369,7 +371,7 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
         if(IS_FIN(flags)){
             //we get a fin, so we send an ack and send our own fin
             cerr << "*******************Got FIN*************************\n";
-            cs->state.SetSendRwnd(window_size);
+            cs->state.SetSendRwnd(window_size); //I feel like we dont care about this anymore bc we got a fin
             cs->state.SetState(CLOSE_WAIT);
             cs->state.SetLastRecvd(seqnum+1);
             cs->bTmrActive = true;
@@ -388,9 +390,9 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
                 cs->state.SetSendRwnd(window_size);
 
                 // clear send buffer 
-                int acked_bytes = cs->state.last_acked - ack;
+                int acked_bytes = ack - cs->state.last_acked;
                 cs->state.SendBuffer.Erase(0, acked_bytes);
-
+                
                 // v unsure about this
                 if(payload.GetSize()==0){
                     cs->state.SetLastRecvd(seqnum+1);
@@ -408,13 +410,15 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
             cs->state.RecvBuffer.AddBack(payload);
             SockRequestResponse *write = new SockRequestResponse(WRITE, cs->connection, cs->state.RecvBuffer, cs->state.RecvBuffer.GetSize(), EOK);
             MinetSend(sock, *write);
-
+            delete write;
+            
             Packet send;
             make_packet(send, *cs, ACK, 0, false);
             MinetSend(mux, send);
-
-            cs->bTmrActive = true;
-            cs->timeout = Time()+5; //arbitrarily picked 5
+            
+            //I feel like we probably dont need timers for ACKs because we dont expect a response to them
+            //cs->bTmrActive = true;
+            //cs->timeout = Time()+5; //arbitrarily picked 5
         }
         break;
     case SEND_DATA:
@@ -494,6 +498,7 @@ void handle_Sock_Req(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPStat
                 {
                     cerr << "*******************in CONNECT of handle_Sock_req(conn not in list)***********************\n";
                     //got a request from socket to create a new connection
+                    //need to change to random selection of the seqnum start
                     TCPState * state = new TCPState(1, SYN_SENT, 5);
                     ConnectionToStateMapping<TCPState> * CTSM = new ConnectionToStateMapping<TCPState>(req.connection, Time()+5, *state, true);
                     CTSM->state.last_acked = 0;
@@ -517,9 +522,11 @@ void handle_Sock_Req(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPStat
             case ACCEPT :
                 {
                     cerr << "*******************in ACCEPT of handle_Sock_req(conn not in list)***********************\n";
+                    //same thing, need to make random
                     TCPState * state = new TCPState(1, LISTEN, 5);
                     ConnectionToStateMapping<TCPState> * CTSM = new ConnectionToStateMapping<TCPState>(req.connection, Time()+5, *state, true);
-                    CTSM->state.last_acked = 0;
+                    
+                    CTSM->state.last_acked = 0; //why do we do this? if we should shouldnt we do it for connect?
                     
                     SockRequestResponse *status = new SockRequestResponse(STATUS, CTSM->connection, b, 0, EOK); //dunno if this should be null
                     MinetSend(sock, *status);
@@ -602,7 +609,7 @@ void handle_Sock_Req(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPStat
                         send_data(mux, reqData, *cs, false);
 
                         //tell sock data was send successfull
-                        SockRequestResponse *status = new SockRequestResponse(STATUS, req.connection, req.data, req.data.GetSize(), EOK); //not sure this is the correct response
+                        SockRequestResponse *status = new SockRequestResponse(STATUS, req.connection, b, req.data.GetSize(), EOK); //not sure this is the correct response
                     }
                 }
                 break;
@@ -620,6 +627,7 @@ void handle_Sock_Req(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPStat
                     if(cs->state.GetState() == ESTABLISHED){
                         cerr << "*******************in FORWARD handle_Sock_req(conn in list)--state==ESTASBLISHED***********************\n";
                         cs->state.SetState(FIN_WAIT1);
+                        cs->state.last_acked += 1;
                         cs->state.SetLastSent(cs->state.GetLastSent()+1);
 
                         Packet fin;
