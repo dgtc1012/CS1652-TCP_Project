@@ -406,6 +406,7 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
             cerr << "***********************Got content with data woooooo*******************\n";
             cs->state.SetSendRwnd(window_size);
             cs->state.SetLastRecvd(seqnum+payload.GetSize());
+            //cs->state.last_sent = cs->state.last_sent + 1;
             
             cs->state.RecvBuffer.AddBack(payload);
             SockRequestResponse *write = new SockRequestResponse(WRITE, cs->connection, cs->state.RecvBuffer, cs->state.RecvBuffer.GetSize(), EOK);
