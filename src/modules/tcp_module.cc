@@ -493,6 +493,8 @@ void handle_Sock_Req(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPStat
     Buffer b;
     MinetReceive(sock, req);
 
+    cerr << req << endl;
+
     ConnectionList<TCPState>::iterator cs = clist.FindMatching(req.connection);
     //connection not in list
     if(cs == clist.end()){
@@ -615,6 +617,8 @@ void handle_Sock_Req(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPStat
 
                         //tell sock data was send successfull
                         SockRequestResponse *status = new SockRequestResponse(STATUS, req.connection, b, req.data.GetSize(), EOK); //not sure this is the correct response
+                        MinetSend(sock, *status);
+                        delete status;
                     }
                 }
                 break;
