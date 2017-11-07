@@ -354,8 +354,8 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
             cs->state.SetState(ESTABLISHED);
             
             //Dannah -> I dont know if we need this timer
-            cs->bTmrActive = true;
-            cs->timeout = Time() + 5;
+            cs->bTmrActive = false;
+            //cs->timeout = Time() + 5;
 
             SockRequestResponse * msg = new SockRequestResponse(WRITE, cs->connection, payload, 0, EOK);
             MinetSend(sock, *msg);
@@ -490,6 +490,8 @@ void handle_Sock_Req(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPStat
     Buffer b;
     MinetReceive(sock, req);
 
+    cerr << req << endl;
+
     ConnectionList<TCPState>::iterator cs = clist.FindMatching(req.connection);
     //connection not in list
     if(cs == clist.end()){
@@ -607,10 +609,12 @@ void handle_Sock_Req(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPStat
                         cs->timeout = Time() + 5;
 
                         //some send data method
-                        send_data(mux, reqData, *cs, false);
+                        send_data(mux, reqData, *cs, true);
 
                         //tell sock data was send successfull
                         SockRequestResponse *status = new SockRequestResponse(STATUS, req.connection, b, req.data.GetSize(), EOK); //not sure this is the correct response
+                        MinetSend(sock, *status);
+                        delete status;
                     }
                 }
                 break;
