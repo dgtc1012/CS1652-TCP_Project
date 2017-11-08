@@ -476,7 +476,7 @@ void handle_IP_Packet(MinetHandle &mux, MinetHandle &sock, ConnectionList<TCPSta
             
             //close connection if no new FIN recvd by timout
             cs->bTmrActive = true;
-            cs->timeout = Time() + 2*MSL_TIME_SEC;
+            cs->timeout = Time() + 2*MSL_TIME_SECS;
             MinetSend(mux, close);
         }
         break;
